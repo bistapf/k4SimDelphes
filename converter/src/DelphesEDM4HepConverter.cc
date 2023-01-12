@@ -1,5 +1,6 @@
-#include "k4SimDelphes/DelphesEDM4HepConverter.h"
 #include "delphesHelpers.h"  // getAllParticleIds
+
+#include "k4SimDelphes/DelphesEDM4HepConverter.h"
 #include "k4SimDelphes/DelphesEDM4HepOutputConfiguration.h"
 
 #include "edm4hep/CalorimeterHitCollection.h"
@@ -188,6 +189,10 @@ namespace k4SimDelphes {
     auto* trackCollection    = createCollection<edm4hep::TrackCollection>(branch);
     //UserData for overflowing information
     auto* pathLengthCollection = createCollection<podio::UserDataCollection<float>>(branch + "_L");
+
+    // user data to define magnetic field (fill once per event)
+    auto* magFieldCollection = createCollection<podio::UserDataCollection<float>>("magFieldBz");
+    magFieldCollection->push_back(m_magneticFieldBz);
 
     auto* mcRecoRelations = getCollection<edm4hep::MCRecoParticleAssociationCollection>(m_mcRecoAssocCollName);
     auto* idCollection    = getCollection<edm4hep::ParticleIDCollection>(m_particleIDName);
