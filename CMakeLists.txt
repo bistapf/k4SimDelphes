@@ -14,7 +14,7 @@ option(USE_EXTERNAL_CATCH2 "If off, build the catch2 unittest framework locally"
 
 #--- Declare project version --------------------------------------------------
 SET( ${PROJECT_NAME}_VERSION_MAJOR 0 )
-SET( ${PROJECT_NAME}_VERSION_MINOR 4 )
+SET( ${PROJECT_NAME}_VERSION_MINOR 5 )
 SET( ${PROJECT_NAME}_VERSION_PATCH 0 )
 
 SET( ${PROJECT_NAME}_VERSION
@@ -47,9 +47,9 @@ if (NOT CMAKE_CONFIGURATION_TYPES)
 endif()
 
 #--- add version files ---------------------------------------------------------
-configure_file(${CMAKE_SOURCE_DIR}/k4SimDelphesVersion.h
-               ${CMAKE_BINARY_DIR}/k4SimDelphesVersion.h )
-install(FILES ${CMAKE_BINARY_DIR}/k4SimDelphesVersion.h
+configure_file(${PROJECT_SOURCE_DIR}/k4SimDelphesVersion.h
+               ${PROJECT_BINARY_DIR}/k4SimDelphesVersion.h )
+install(FILES ${PROJECT_BINARY_DIR}/k4SimDelphesVersion.h
   DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/k4SimDelphes )
 
 
