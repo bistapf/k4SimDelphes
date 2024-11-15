@@ -7,11 +7,19 @@
 #include "edm4hep/ClusterCollection.h"
 #include "edm4hep/EventHeaderCollection.h"
 #include "edm4hep/MCParticleCollection.h"
-#include "edm4hep/MCRecoParticleAssociationCollection.h"
 #include "edm4hep/ParticleIDCollection.h"
+#include "edm4hep/RecDqdxCollection.h"
+#include "edm4hep/RecoMCParticleLinkCollection.h"
 #include "edm4hep/ReconstructedParticleCollection.h"
 #include "edm4hep/TrackCollection.h"
+#if __has_include("edm4hep/TrackerHit3DCollection.h")
+#include "edm4hep/TrackerHit3DCollection.h"
+#else
 #include "edm4hep/TrackerHitCollection.h"
+namespace edm4hep {
+  using TrackerHit3DCollection = edm4hep::TrackerHitCollection;
+}
+#endif
 #include "edm4hep/Vector3d.h"
 
 #include "podio/UserDataCollection.h"
@@ -19,8 +27,6 @@
 #include <TMatrixDSym.h>
 
 #include <iostream>
-#include <iterator>
-#include <set>
 
 namespace k4SimDelphes {
 
@@ -47,7 +53,7 @@ namespace k4SimDelphes {
   void sortBranchesProcessingOrder(std::vector<BranchSettings>&           branches,
                                    std::array<std::string_view, N> const& processingOrder);
 
-  edm4hep::MutableTrack convertTrack(Track const* cand, const double magFieldBz);
+  edm4hep::MutableTrack convertTrack(Track const* cand);
 
   void setMotherDaughterRelations(GenParticle const* delphesCand, edm4hep::MutableMCParticle particle,
                                   edm4hep::MCParticleCollection& mcParticles);
@@ -73,8 +79,7 @@ namespace k4SimDelphes {
                                                    OutputSettings const& outputSettings, double magFieldBz)
       : m_magneticFieldBz(magFieldBz),
         m_recoCollName(outputSettings.RecoParticleCollectionName),
-        m_particleIDName(outputSettings.ParticleIDCollectionName),
-        m_mcRecoAssocCollName(outputSettings.MCRecoAssociationCollectionName) {
+        m_recoMCLinkCollName(outputSettings.RecoMCParticleLinkCollectionName) {
     for (const auto& branch : branches) {
       if (contains(PROCESSING_ORDER, branch.className)) {
         m_branches.push_back(branch);
@@ -198,7 +203,6 @@ namespace k4SimDelphes {
     }
 
     // mother-daughter relations
-    const auto nElements = collection->size();
     for (int iCand = 0; iCand < delphesCollection->GetEntries(); ++iCand) {
       const auto* delphesCand = static_cast<GenParticle*>(delphesCollection->At(iCand));
       auto        cand        = collection->at(iCand);
@@ -210,6 +214,7 @@ namespace k4SimDelphes {
   void DelphesEDM4HepConverter::processTracks(const TClonesArray* delphesCollection, std::string const& branch) {
     auto* particleCollection = getCollection<edm4hep::ReconstructedParticleCollection>(m_recoCollName);
     auto* trackCollection    = createCollection<edm4hep::TrackCollection>(branch);
+    auto* dqdxCollection     = createCollection<edm4hep::RecDqdxCollection>(branch + "_dNdx");
     //UserData for overflowing information
     auto* pathLengthCollection = createCollection<podio::UserDataCollection<float>>(branch + "_L");
 
@@ -217,14 +222,15 @@ namespace k4SimDelphes {
     auto* magFieldCollection = createCollection<podio::UserDataCollection<float>>("magFieldBz");
     magFieldCollection->push_back(m_magneticFieldBz);
 
-    auto* mcRecoRelations = getCollection<edm4hep::MCRecoParticleAssociationCollection>(m_mcRecoAssocCollName);
-    auto* idCollection    = getCollection<edm4hep::ParticleIDCollection>(m_particleIDName);
-    auto* trackerHitColl  = getCollection<edm4hep::TrackerHitCollection>(TRACKERHIT_OUTPUT_NAME);
+    auto* mcRecoRelations = getCollection<edm4hep::RecoMCParticleLinkCollection>(m_recoMCLinkCollName);
+    auto* idCollection    = createCollection<edm4hep::ParticleIDCollection>(branch + "_PID");
+    auto* trackerHitColl  = getCollection<edm4hep::TrackerHit3DCollection>(TRACKERHIT_OUTPUT_NAME);
 
     for (auto iCand = 0; iCand < delphesCollection->GetEntries(); ++iCand) {
       auto* delphesCand = static_cast<Track*>(delphesCollection->At(iCand));
 
-      auto track = convertTrack(delphesCand, m_magneticFieldBz);
+      auto track = convertTrack(delphesCand);
+      trackCollection->push_back(track);
 
       // this is the position/time at the IP
       auto trackerHit0 = trackerHitColl->create();
@@ -246,17 +252,11 @@ namespace k4SimDelphes {
       trackerHit2.setPosition(position2);
       track.addToTrackerHits(trackerHit2);
 
-      track.setRadiusOfInnermostHit(
-          sqrt(delphesCand->XFirstHit * delphesCand->XFirstHit + delphesCand->YFirstHit * delphesCand->YFirstHit));
-
-      trackCollection->push_back(track);
       pathLengthCollection->push_back(delphesCand->L);
 
-      edm4hep::Quantity dxQuantities{};
-      dxQuantities.type  = 0;
-      dxQuantities.value = delphesCand->dNdx;
-
-      track.addToDxQuantities(dxQuantities);
+      auto dndx            = dqdxCollection->create();
+      dndx.getDQdx().value = delphesCand->dNdx;
+      dndx.setTrack(track);
 
       auto id = idCollection->create();
 
@@ -272,13 +272,13 @@ namespace k4SimDelphes {
       cand.addToTracks(track);
 
       // id.addToParameters(delphesCand->IsolationVar);
-      cand.addToParticleIDs(id);
+      id.setParticle(cand);
 
       UInt_t genId = delphesCand->Particle.GetUniqueID();
       if (const auto genIt = m_genParticleIds.find(genId); genIt != m_genParticleIds.end()) {
         auto relation = mcRecoRelations->create();
-        relation.setSim(genIt->second);
-        relation.setRec(cand);
+        relation.setTo(genIt->second);
+        relation.setFrom(cand);
       }
 
       m_recoParticleGenIds.emplace(genId, cand);
@@ -289,7 +289,7 @@ namespace k4SimDelphes {
   void DelphesEDM4HepConverter::processClusters(const TClonesArray* delphesCollection, std::string const& branch) {
     auto* particleCollection = getCollection<edm4hep::ReconstructedParticleCollection>(m_recoCollName);
     auto* clusterCollection  = createCollection<edm4hep::ClusterCollection>(branch);
-    auto* mcRecoRelations    = getCollection<edm4hep::MCRecoParticleAssociationCollection>(m_mcRecoAssocCollName);
+    auto* mcRecoRelations    = getCollection<edm4hep::RecoMCParticleLinkCollection>(m_recoMCLinkCollName);
     auto* calorimeterHitColl = getCollection<edm4hep::CalorimeterHitCollection>(CALORIMETERHIT_OUTPUT_NAME);
 
     for (auto iCand = 0; iCand < delphesCollection->GetEntries(); ++iCand) {
@@ -320,7 +320,7 @@ namespace k4SimDelphes {
       cand.setMass(delphesCand->P4().M());
       // NOTE: Particle-Flow Neutral are either photons or K_L in Delphes
       auto pid = (delphesCand->Ehad > 0.) ? 130 : 22;
-      cand.setType(pid);  // NOTE: set PID of cluster consistent with mass
+      cand.setPDG(pid);  // NOTE: set PID of cluster consistent with mass
 
       // store position and time of neutral candidate in a CalorimeterHit
       auto calorimeterHit = calorimeterHitColl->create();
@@ -333,8 +333,8 @@ namespace k4SimDelphes {
       for (const auto genId : getAllParticleIDs(delphesCand)) {
         if (const auto genIt = m_genParticleIds.find(genId); genIt != m_genParticleIds.end()) {
           auto relation = mcRecoRelations->create();
-          relation.setSim(genIt->second);
-          relation.setRec(cand);
+          relation.setTo(genIt->second);
+          relation.setFrom(cand);
         }
 
         m_recoParticleGenIds.emplace(genId, cand);
@@ -344,13 +344,15 @@ namespace k4SimDelphes {
   }
 
   void DelphesEDM4HepConverter::processJets(const TClonesArray* delphesCollection, std::string const& branch) {
-    auto* jetCollection = createCollection<edm4hep::ReconstructedParticleCollection>(branch);
-    auto* idCollection  = getCollection<edm4hep::ParticleIDCollection>(m_particleIDName);
+    auto* jetCollection         = createCollection<edm4hep::ReconstructedParticleCollection>(branch);
+    auto* idCollection_HF_tags  = createCollection<edm4hep::ParticleIDCollection>(branch + "_HF_tags");
+    auto* idCollection_tau_tags = createCollection<edm4hep::ParticleIDCollection>(branch + "_tau_tags");
 
     for (auto iCand = 0; iCand < delphesCollection->GetEntries(); ++iCand) {
       auto* delphesCand = static_cast<Jet*>(delphesCollection->At(iCand));
       auto  jet         = jetCollection->create();
-      auto  id          = idCollection->create();
+      auto  id_HF_tag   = idCollection_HF_tags->create();
+      auto  id_tau_tag  = idCollection_tau_tags->create();
 
       // NOTE: Filling the jet with the information delievered by Delphes, which
       // is not necessarily the same as the sum of its constituents (filled below)
@@ -361,9 +363,10 @@ namespace k4SimDelphes {
       jet.setMomentum({(float)momentum.Px(), (float)momentum.Py(), (float)momentum.Pz()});
 
       // id.addToParameters(delphesCand->IsolationVar);
-      id.addToParameters(delphesCand->BTag);
-      id.addToParameters(delphesCand->TauTag);
-      jet.addToParticleIDs(id);
+      id_HF_tag.addToParameters(delphesCand->BTag);
+      id_tau_tag.addToParameters(delphesCand->TauTag);
+      id_HF_tag.setParticle(jet);
+      id_tau_tag.setParticle(jet);
 
       const auto& constituents = delphesCand->Constituents;
       for (auto iConst = 0; iConst < constituents.GetEntries(); ++iConst) {
@@ -487,15 +490,15 @@ namespace k4SimDelphes {
     return {};
   }
 
-  edm4hep::MCRecoParticleAssociationCollection* DelphesEDM4HepConverter::createExternalRecoAssociations(
+  edm4hep::RecoMCParticleLinkCollection* DelphesEDM4HepConverter::createExternalRecoMCLinks(
       const std::unordered_map<UInt_t, edm4hep::MCParticle>& mc_map) {
-    auto mcRecoRelations = new edm4hep::MCRecoParticleAssociationCollection();
+    auto mcRecoRelations = new edm4hep::RecoMCParticleLinkCollection();
     for (const auto& particleID : mc_map) {
       const auto [recoBegin, recoEnd] = m_recoParticleGenIds.equal_range(particleID.first);
       for (auto it = recoBegin; it != recoEnd; ++it) {
         auto relation = mcRecoRelations->create();
-        relation.setSim(particleID.second);
-        relation.setRec(it->second);
+        relation.setTo(particleID.second);
+        relation.setFrom(it->second);
       }
     }
     return mcRecoRelations;
@@ -506,14 +509,11 @@ namespace k4SimDelphes {
     if (m_collections.find(m_recoCollName) == m_collections.end()) {
       createCollection<edm4hep::ReconstructedParticleCollection>(m_recoCollName);
     }
-    if (m_collections.find(m_mcRecoAssocCollName) == m_collections.end()) {
-      createCollection<edm4hep::MCRecoParticleAssociationCollection>(m_mcRecoAssocCollName);
-    }
-    if (m_collections.find(m_particleIDName) == m_collections.end()) {
-      createCollection<edm4hep::ParticleIDCollection>(m_particleIDName);
+    if (m_collections.find(m_recoMCLinkCollName) == m_collections.end()) {
+      createCollection<edm4hep::RecoMCParticleLinkCollection>(m_recoMCLinkCollName);
     }
     if (m_collections.find(TRACKERHIT_OUTPUT_NAME) == m_collections.end()) {
-      createCollection<edm4hep::TrackerHitCollection>(TRACKERHIT_OUTPUT_NAME);
+      createCollection<edm4hep::TrackerHit3DCollection>(TRACKERHIT_OUTPUT_NAME);
     }
     if (m_collections.find(CALORIMETERHIT_OUTPUT_NAME) == m_collections.end()) {
       createCollection<edm4hep::CalorimeterHitCollection>(CALORIMETERHIT_OUTPUT_NAME);
@@ -540,7 +540,7 @@ namespace k4SimDelphes {
     });
   }
 
-  edm4hep::MutableTrack convertTrack(Track const* cand, const double magFieldBz) {
+  edm4hep::MutableTrack convertTrack(Track const* cand) {
     edm4hep::MutableTrack track;
     // Delphes does not really provide any information that would go into the
     // track itself. But some information can be used to at least partially
@@ -556,17 +556,6 @@ namespace k4SimDelphes {
     trackState.phi = cand->Phi;
     // Same thing under different name in Delphes
     trackState.tanLambda = cand->CtgTheta;
-    // Only do omega when there is actually a magnetic field.
-    double varOmega = 0;
-    if (magFieldBz) {
-      // conversion to have omega in [1/mm]
-      constexpr double a = c_light * 1e3 * 1e-15;
-
-      trackState.omega = a * magFieldBz / cand->PT * std::copysign(1.0, cand->Charge);
-      // calculate variation using simple error propagation, assuming
-      // constant B-field -> relative error on pT is relative error on omega
-      varOmega = cand->ErrorPT * cand->ErrorPT / cand->PT / cand->PT * trackState.omega * trackState.omega;
-    }
 
     // fill the covariance matrix. There is a conversion of units
     // because the covariance matrix in delphes is with the original units
@@ -578,6 +567,8 @@ namespace k4SimDelphes {
     // needs to be applied to any covariance matrix element
     // relating to curvature (index 2)
     double scale2 = -2.;  // CAREFUL: DELPHES USES THE HALF-CURVATURE
+
+    trackState.omega = cand->C * scale2;
 
     covMatrix[0] = covaFB(0, 0);
 
@@ -615,7 +606,7 @@ namespace k4SimDelphes {
 
     // Mothers
     // Only set parents if not accessing out of bounds
-    const auto safeSetParent = [&mcParticles, &particle](int index) {
+    const auto safeSetParent = [&mcParticles, &particle](size_t index) {
       if (index < mcParticles.size()) {
         particle.addToParents(mcParticles[index]);
       }
@@ -644,7 +635,7 @@ namespace k4SimDelphes {
     }
 
     // Daughters
-    const auto safeSetDaughter = [&mcParticles, &particle](int index) {
+    const auto safeSetDaughter = [&mcParticles, &particle](size_t index) {
       if (index < mcParticles.size()) {
         particle.addToDaughters(mcParticles[index]);
       }

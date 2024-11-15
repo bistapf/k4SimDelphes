@@ -1,3 +1,91 @@
+# v00-07-03
+
+* 2024-11-13 Juraj Smiesko ([PR#137](https://github.com/key4hep/k4SimDelphes/pull/137))
+  - Make sure to not crash in cases where the LHEF reader has not been initialized in the Pythia reader
+
+# v00-07-02
+
+* 2024-10-23 tmadlener ([PR#131](https://github.com/key4hep/k4SimDelphes/pull/131))
+  - Split the global `ParticleIDs` collection into several smaller collections to facilitate downstream usage after the reversal of the `ParticleID` - `ReconstructedParticle` relation direction in [EDM4hep#268](https://github.com/key4hep/EDM4hep/pull/268).
+    - `Tracks` will get a `ParticleIDCollection` with the suffix `_PID`
+    - `Jets` will get a `ParticleIDCollection` with the suffix `_HF_tags` for any heavy flavor tags, and `_tau_tags` for any tau tags.
+
+* 2024-10-15 Juraj Smiesko ([PR#134](https://github.com/key4hep/k4SimDelphes/pull/134))
+  - Print x-sec error for Pythia process
+  - Print info from LHEF file, if used
+  - Print info from MadGraph LHEF file, if used
+
+# v00-07-01
+
+* 2024-10-14 Thomas Madlener ([PR#133](https://github.com/key4hep/k4SimDelphes/pull/133))
+  - Update the CI README bagde
+  - Add a zenodo badge
+
+# v00-07
+
+* 2024-10-04 tmadlener ([PR#130](https://github.com/key4hep/k4SimDelphes/pull/130))
+  - Make MC-Reco links comparisons pass even if they are not the same order in EDM4hep and Delphes as long as all the links are present.
+
+* 2024-10-04 tmadlener ([PR#128](https://github.com/key4hep/k4SimDelphes/pull/128))
+  - Move away from the deprecated `Association`s to the new `Link`s (see[EDM4hep#341](https://github.com/key4hep/EDM4hep/pull/341))
+    - The **`MCRecoAssociationCollectionName` output configuration parameter has been deprecated** and is **replaced by `RecoMCParticleLinkCollectionName`**. For the time being both will keep working, but the former will be removed in one of the upcoming releases. The default configuration has been adjusted accordingly.
+  - Remove a few long outdated examples
+
+* 2024-10-04 jmcarcell ([PR#127](https://github.com/key4hep/k4SimDelphes/pull/127))
+  - Use the Key4hepConfig flag to set the standard, compiler flags and rpath magic.
+  - Fix compiler warnings that were uncovered by this
+
+* 2024-07-30 jmcarcell ([PR#126](https://github.com/key4hep/k4SimDelphes/pull/126))
+  - Do not link to GaudiAlgLib
+  - Add the necessary changes to the algorithm, use `Gaudi::Algorithm`, make `execute()` const and add a `const EventContext&`
+  - Add mutable to some elements that are changed; add const to some functions so that they can be called inside `execute(const EventContext&) const`
+
+* 2024-07-29 tmadlener ([PR#125](https://github.com/key4hep/k4SimDelphes/pull/125))
+  - Fix a bug where the event loop was not entered in `DelphesROOT_EDM4HEP`
+
+* 2024-07-29 jmcarcell ([PR#120](https://github.com/key4hep/k4SimDelphes/pull/120))
+  - Delete the version checks for Podio before 1.0
+
+* 2024-07-16 tmadlener ([PR#121](https://github.com/key4hep/k4SimDelphes/pull/121))
+  - Store the dN/dx information from Delphes into a dedicated `RecDqdx` collection and relate the objects back to the tracks to keep things working after [EDM4hep#311](https://github.com/key4hep/EDM4hep/pull/311)
+
+* 2024-06-26 jmcarcell ([PR#119](https://github.com/key4hep/k4SimDelphes/pull/119))
+  - Don't set setRadiusOfInnermostHit for EDM4hep tracks
+
+* 2024-05-01 tmadlener ([PR#117](https://github.com/key4hep/k4SimDelphes/pull/117))
+  - Make the `ParticleID`s that are populated point back to the `ReconstructedParticle`s they belong to as required by [key4hep/EDM4hep#268](https://github.com/key4hep/EDM4hep/pull/268)
+
+* 2024-03-11 tmadlener ([PR#118](https://github.com/key4hep/k4SimDelphes/pull/118))
+  - Switch to the non-deprecated accessor function after changes in EDM4hep ([key4hep/EDM4hep#273](https://github.com/key4hep/EDM4hep/pull/273))
+
+* 2024-02-22 tmadlener ([PR#113](https://github.com/key4hep/k4SimDelphes/pull/113))
+  - Switch from `edm4hep::TrackerHit` to `edm4hep::TrackerHit3D` after its renaming upstream (https://github.com/key4hep/EDM4hep/pull/252) allowing for a transparent migration.
+
+# v00-06-02
+
+* 2024-02-22 tmadlener ([PR#116](https://github.com/key4hep/k4simdelphes/pull/116))
+  - Switch to alma9 and key4hep image for running doctest CI workflow
+
+* 2024-02-22 jmcarcell ([PR#115](https://github.com/key4hep/k4simdelphes/pull/115))
+  - Change ROOTFrame{Writer,Reader} to ROOT{Writer,Reader} following https://github.com/AIDASoft/podio/pull/549
+
+# v00-06-01
+
+* 2024-02-05 tmadlener ([PR#114](https://github.com/key4hep/k4SimDelphes/pull/114))
+  - Allow to build with c++20
+  - Switch to new key4hep build action and remove old workflow
+
+# v00-06
+
+* 2023-11-02 Perez ([PR#112](https://github.com/key4hep/k4SimDelphes/pull/112))
+  - The track's omega is taken directly from the curvature of the delphes track, instead of recomputing it from the track pT. Converting the curvature to pT and then back to omega leads to a worse numerical precision.
+
+* 2023-09-12 jmcarcell ([PR#111](https://github.com/key4hep/k4SimDelphes/pull/111))
+  - Fix a cmake warning by changing the minimum version to 3.5, since support for versions < 3.5 is going to be removed in the future
+  - Rename the podioDict or edm4hepDict targets to podio or edm4hep in generator expressions for when they will be removed
+  - Add ROOT libraries at link time for building k4SimDelphes together with other packages
+  - Fix a test because the steering file was missing an `import os` (behaviour changed after https://github.com/key4hep/k4FWCore/pull/134)
+
 # v00-05
 
 * 2023-07-16 jmcarcell ([PR#109](https://github.com/key4hep/k4SimDelphes/pull/109))

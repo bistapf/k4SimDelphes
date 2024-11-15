@@ -1,12 +1,12 @@
 #include "delphesHelpers.h"
 
 #include "edm4hep/MCParticleCollection.h"
-#include "edm4hep/MCRecoParticleAssociationCollection.h"
+#include "edm4hep/RecoMCParticleLinkCollection.h"
 #include "edm4hep/ReconstructedParticleCollection.h"
 #include "edm4hep/utils/kinematics.h"
 
 #include "podio/Frame.h"
-#include "podio/ROOTFrameReader.h"
+#include "podio/ROOTReader.h"
 
 #include "ExRootAnalysis/ExRootTreeBranch.h"
 #include "ExRootAnalysis/ExRootTreeReader.h"
@@ -62,15 +62,15 @@ void assertSameKinematics(const DelphesT* delphesCand, const EDM4HepT& edm4hepCa
  * Get all MCParticles related to a given ReconstructedParticle
  *
  */
-std::vector<edm4hep::MCParticle> getAssociatedMCParticles(
-    edm4hep::ReconstructedParticle reco, const edm4hep::MCRecoParticleAssociationCollection& associations) {
+std::vector<edm4hep::MCParticle> getAssociatedMCParticles(edm4hep::ReconstructedParticle               reco,
+                                                          const edm4hep::RecoMCParticleLinkCollection& associations) {
   std::vector<edm4hep::MCParticle> sims;
   // NOTE: looping over the whole collection of associations here is super
   // inefficient, but as long as there is no utility for this, implementing the
   // necessary caching is just too much work for this test case here
   for (const auto assoc : associations) {
-    if (assoc.getRec() == reco) {
-      sims.emplace_back(assoc.getSim());
+    if (assoc.getFrom() == reco) {
+      sims.emplace_back(assoc.getTo());
     }
   }
 
@@ -98,13 +98,25 @@ template <typename DelphesT> std::vector<GenParticle*> getAssociatedMCParticles(
  */
 template <typename DelphesT>
 bool compareMCRelations(const DelphesT* delphesCand, edm4hep::ReconstructedParticle edm4hepCand,
-                        const edm4hep::MCRecoParticleAssociationCollection& associations) {
-  const auto delphesGenParticles = getAssociatedMCParticles(delphesCand);
-  const auto edm4hepMCParticles  = getAssociatedMCParticles(edm4hepCand, associations);
+                        const edm4hep::RecoMCParticleLinkCollection& associations) {
+  auto delphesGenParticles = getAssociatedMCParticles(delphesCand);
+  auto edm4hepMCParticles  = getAssociatedMCParticles(edm4hepCand, associations);
 
   if (delphesGenParticles.size() != edm4hepMCParticles.size()) {
     return false;
   }
+
+  // In some cases the order of the vectors is not exactly the same, because
+  // Delphes(!) seems to write them in a different order from time to time even
+  // with equal random seeds. Here we sort them simply by the x coordinate of
+  // the momentum since that is easiest to do without having to wade into the
+  // subtleties of potentially small differences in energy in a four vector
+  // depending on whether energy is stored directly or whether we compute it via
+  // the momentum and the mass.
+  std::sort(delphesGenParticles.begin(), delphesGenParticles.end(),
+            [](const auto* a, const auto* b) { return a->P4().X() < b->P4().X(); });
+  std::sort(edm4hepMCParticles.begin(), edm4hepMCParticles.end(),
+            [](const auto& a, const auto& b) { return a.getMomentum().x < b.getMomentum().x; });
 
   for (size_t i = 0; i < delphesGenParticles.size(); ++i) {
     if (!compareKinematics(delphesGenParticles[i], edm4hepMCParticles[i])) {
@@ -121,7 +133,7 @@ bool compareMCRelations(const DelphesT* delphesCand, edm4hep::ReconstructedParti
  */
 void compareCollectionsBasic(const TClonesArray* delphesColl, const podio::CollectionBase& edm4hepColl,
                              const std::string collName) {
-  if (delphesColl->GetEntries() != edm4hepColl.size()) {
+  if (delphesColl->GetEntries() != static_cast<int>(edm4hepColl.size())) {
     std::cerr << "Sizes of collection \'" << collName << "\' disagree: " << delphesColl->GetEntries() << " vs "
               << edm4hepColl.size() << std::endl;
     std::exit(1);
@@ -183,10 +195,10 @@ void compareCollectionElements(const TClonesArray* delphesColl, const edm4hep::M
       std::exit(1);
     }
 
-    const auto assertMsg = [](const std::string& collName, const int index, const int relIndex,
+    const auto assertMsg = [](const std::string& name, const int index, const int relIndex,
                               const std::string& relation) {
       return relation + std::to_string(relIndex) + " of particle " + std::to_string(index) +
-             " differs between delphes and edm4hep output in collection \'" + collName + "\'";
+             " differs between delphes and edm4hep output in collection \'" + name + "\'";
     };
 
     // compare the parents
@@ -243,7 +255,7 @@ void compareCollectionElements(const TClonesArray*                             d
 template <typename DelphesT>
 void compareCollectionElements(const TClonesArray*                             delphesColl,
                                const edm4hep::ReconstructedParticleCollection& edm4hepColl, const std::string collName,
-                               const int startIndex, const edm4hep::MCRecoParticleAssociationCollection& associations) {
+                               const int startIndex, const edm4hep::RecoMCParticleLinkCollection& associations) {
   for (int i = 0; i < delphesColl->GetEntries(); ++i) {
     const auto* delphesCand = static_cast<DelphesT*>(delphesColl->At(i));
     const auto  edm4hepCand = edm4hepColl[i + startIndex];
@@ -278,17 +290,17 @@ void compareJets(const TClonesArray* delphesColl, const edm4hep::ReconstructedPa
     const auto  edm4hepCand = edm4hepColl[i];
     assertSameKinematics(delphesCand, edm4hepCand, stdErrorMessage, collName, i);
 
-    if (delphesCand->Constituents.GetEntries() != edm4hepCand.getParticles().size()) {
+    if (delphesCand->Constituents.GetEntries() != static_cast<int>(edm4hepCand.getParticles().size())) {
       std::cerr << "Number of Jet constitutents in Jet " << i
                 << " differs between delphes and edm4hep output: " << delphesCand->Constituents.GetEntries() << " vs "
                 << edm4hepCand.getParticles().size() << std::endl;
       std::exit(1);
     }
 
-    const auto assertMsg = [](const std::string& collName, const int index, const int iConst) {
+    const auto assertMsg = [](const std::string& name, const int index, const int iConst) {
       return std::string("Jet constituent ") + std::to_string(iConst) +
              " has different kinematics in delphes and in edm4hep in Jet " + std::to_string(index) +
-             " in collection \'" + collName + "\'";
+             " in collection \'" + name + "\'";
     };
 
     for (int j = 0; j < delphesCand->Constituents.GetEntries(); ++j) {
@@ -327,9 +339,9 @@ void compareMET(const TClonesArray* delphesColl, const edm4hep::ReconstructedPar
   assertSameKinematics(delphesMET, edm4hepMET, []() { return "MET differs between delphes and edm4hep output"; });
 }
 
-int main(int argc, char* argv[]) {
+int main(int, char* argv[]) {
   // do the necessary setup work for podio and delphes first
-  podio::ROOTFrameReader reader{};
+  podio::ROOTReader reader{};
   reader.openFile(argv[1]);
 
   auto chain = std::make_unique<TChain>("Delphes");
@@ -376,8 +388,8 @@ int main(int argc, char* argv[]) {
     compareCollectionsBasic(photonCollDelphes, photonColl, "Photon");
     compareCollectionElements<Photon>(photonCollDelphes, photonColl, "Photon");
 
-    auto&     recoColl = frame.get<edm4hep::ReconstructedParticleCollection>("ReconstructedParticles");
-    const int nRecos   = tracks->GetEntries() + ecalClusters->GetEntries() + hcalClusters->GetEntries();
+    auto&          recoColl = frame.get<edm4hep::ReconstructedParticleCollection>("ReconstructedParticles");
+    const unsigned nRecos   = tracks->GetEntries() + ecalClusters->GetEntries() + hcalClusters->GetEntries();
 
     if (nRecos != recoColl.size()) {
       std::cerr << "The global ReconstructedParticle collection and the original delphes collections differ in size: "
@@ -385,7 +397,7 @@ int main(int argc, char* argv[]) {
       return 1;
     }
 
-    auto& mcRecoAssocColl = frame.get<edm4hep::MCRecoParticleAssociationCollection>("MCRecoAssociations");
+    auto& mcRecoAssocColl = frame.get<edm4hep::RecoMCParticleLinkCollection>("MCRecoAssociations");
 
     compareCollectionElements<Track>(tracks, recoColl, "EFlowTrack", 0, mcRecoAssocColl);
     compareCollectionElements<Tower>(ecalClusters, recoColl, "EFlowPhoton", tracks->GetEntries(), mcRecoAssocColl);

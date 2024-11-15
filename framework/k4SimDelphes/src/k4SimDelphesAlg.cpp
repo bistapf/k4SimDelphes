@@ -1,6 +1,6 @@
 #include "k4SimDelphesAlg.h"
 #include "ExRootAnalysis/ExRootTreeWriter.h"
-#include "edm4hep/MCRecoParticleAssociationCollection.h"
+#include "edm4hep/RecoMCParticleLinkCollection.h"
 #include "edm4hep/ReconstructedParticleCollection.h"
 #include "k4SimDelphes/DelphesEDM4HepOutputConfiguration.h"
 #include "k4SimDelphes/k4GenParticlesDelphesConverter.h"
@@ -11,7 +11,7 @@ DECLARE_COMPONENT(k4SimDelphesAlg)
 using namespace k4SimDelphes;
 
 k4SimDelphesAlg::k4SimDelphesAlg(const std::string& name, ISvcLocator* svcLoc)
-    : GaudiAlgorithm(name, svcLoc), m_eventDataSvc("EventDataSvc", "k4SimDelphesAlg") {
+    : Gaudi::Algorithm(name, svcLoc), m_eventDataSvc("EventDataSvc", "k4SimDelphesAlg") {
   declareProperty("GenParticles", m_InputMCParticles, "(Input) Collection of generated particles");
 }
 
@@ -46,7 +46,7 @@ StatusCode k4SimDelphesAlg::initialize() {
   return StatusCode::SUCCESS;
 }
 
-StatusCode k4SimDelphesAlg::execute() {
+StatusCode k4SimDelphesAlg::execute(const EventContext&) const {
   verbose() << "Execute k4SimDelphesAlg... " << endmsg;
   m_allParticleOutputArray->Clear();
   m_stableParticleOutputArray->Clear();
@@ -71,7 +71,7 @@ StatusCode k4SimDelphesAlg::execute() {
   auto collections = m_edm4hepConverter->getCollections();
   for (auto& c : collections) {
     if (c.first == "MCRecoAssociations") {
-      auto                                new_c   = m_edm4hepConverter->createExternalRecoAssociations(mapSimDelphes);
+      auto                                new_c   = m_edm4hepConverter->createExternalRecoMCLinks(mapSimDelphes);
       DataWrapper<podio::CollectionBase>* wrapper = new DataWrapper<podio::CollectionBase>();
       wrapper->setData(new_c);
       m_podioDataSvc->registerObject("/Event", "/" + std::string(c.first), wrapper).ignore();
